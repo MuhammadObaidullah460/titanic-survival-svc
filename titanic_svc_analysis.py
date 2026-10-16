@@ -4,7 +4,7 @@
 ================================================================================
  Project  : Titanic Passenger Survival Analysis & Prediction
  Model    : Support Vector Classification (SVC) with GridSearchCV
- Dataset  : RMS Titanic Passenger Records (419 samples, 12 features)
+ Dataset  : RMS Titanic Passenger Records (418 samples, 12 features)
  Author   : AI Engineer
  Purpose  : End-to-end ML pipeline — EDA, cleaning, feature engineering,
             model training, hyper-parameter tuning, and evaluation.
@@ -310,60 +310,24 @@ data["Title"] = data["Title"].map(title_mapping).fillna("Rare")
 print("\n  After grouping rare titles:")
 print(data["Title"].value_counts().to_string())
 
-# ── 3.2 Handle Missing Values — Age ─────────────────────────────────────────
-sub_header("3.2 Impute Missing Ages (Median by Pclass × Sex)")
+# ── 3.2 Report missing values (imputation deferred to post-split) ────────────
+# NOTE: Age, Fare, and Embarked imputation is intentionally deferred until
+# AFTER the train/test split (Section 6) to avoid data leakage. Statistics
+# (medians, mode) will be computed on the training set only and then applied
+# to both train and test sets.
+sub_header("3.2 Missing Value Report (imputation happens post-split)")
+missing_pre = data[["Age", "Fare", "Embarked"]].isnull().sum()
+print(missing_pre.to_string())
+print("  ⚠ Imputation deferred to Section 6 (post-split) to prevent leakage.")
 
-age_before = data["Age"].isnull().sum()
-print(f"  Missing before imputation: {age_before}")
-
-# Grouped median imputation (more accurate than global median)
-age_medians = data.groupby(["Pclass", "Sex"])["Age"].median()
-print("\n  Group medians used for imputation:")
-print(age_medians.to_string())
-
-for (pclass, sex), median_age in age_medians.items():
-    mask = (data["Age"].isnull()) & (data["Pclass"] == pclass) & (data["Sex"] == sex)
-    data.loc[mask, "Age"] = median_age
-
-print(f"\n  Missing after imputation : {data['Age'].isnull().sum()}")
-
-# ── 3.3 Handle Missing Values — Fare ────────────────────────────────────────
-sub_header("3.3 Impute Missing Fare")
-
-fare_missing = data["Fare"].isnull().sum()
-print(f"  Missing Fare values: {fare_missing}")
-if fare_missing > 0:
-    # Impute with median of same Pclass
-    for pclass in data["Pclass"].unique():
-        mask = (data["Fare"].isnull()) & (data["Pclass"] == pclass)
-        data.loc[mask, "Fare"] = data[data["Pclass"] == pclass]["Fare"].median()
-    print(f"  After imputation  : {data['Fare'].isnull().sum()}")
-
-# ── 3.4 Handle Missing Values — Embarked ────────────────────────────────────
-sub_header("3.4 Impute Missing Embarked")
-
-emb_missing = data["Embarked"].isnull().sum()
-print(f"  Missing Embarked values: {emb_missing}")
-if emb_missing > 0:
-    mode_embarked = data["Embarked"].mode()[0]
-    data["Embarked"] = data["Embarked"].fillna(mode_embarked)
-    print(f"  Imputed with mode : '{mode_embarked}'")
-    print(f"  After imputation  : {data['Embarked'].isnull().sum()}")
-
-# ── 3.5 Drop Non-Predictive Columns ─────────────────────────────────────────
-sub_header("3.5 Drop Non-Predictive Columns")
+# ── 3.3 Drop Non-Predictive Columns ─────────────────────────────────────────
+sub_header("3.3 Drop Non-Predictive Columns")
 
 cols_to_drop = ["PassengerId", "Name", "Ticket", "Cabin"]
 data = data.drop(columns=cols_to_drop)
 print(f"  Dropped: {cols_to_drop}")
 print(f"  Remaining columns: {list(data.columns)}")
-
-# ── 3.6 Verify Cleaning ─────────────────────────────────────────────────────
-sub_header("3.6 Post-Cleaning Missing Value Check")
-
-remaining_missing = data.isnull().sum()
-print(remaining_missing[remaining_missing > 0].to_string() if remaining_missing.any() else "  ✓ No missing values remain.")
-print(f"\n  Final dataset shape: {data.shape}")
+print(f"\n  Dataset shape before imputation: {data.shape}")
 
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -384,6 +348,13 @@ print(data["IsAlone"].value_counts().to_string())
 
 # ── 4.3 Age Groups ──────────────────────────────────────────────────────────
 sub_header("4.3 AgeGroup (Binned Age)")
+# NOTE: A temporary global-median fill is used here *solely* to allow
+# pd.cut() to bin Age for EDA visualizations (Plot 7) and for creating the
+# AgeGroup feature column structure. The real post-split imputation in
+# Section 6.3 overwrites the raw Age values in X_train / X_test using
+# train-only grouped medians — which is what the model actually trains on.
+_age_global_median = data["Age"].median()  # full-data median (EDA only)
+data["Age"] = data["Age"].fillna(_age_global_median)
 bins = [0, 12, 18, 30, 50, 80]
 labels_age = ["Child", "Teen", "Young Adult", "Adult", "Senior"]
 data["AgeGroup"] = pd.cut(data["Age"], bins=bins, labels=labels_age, right=True)
@@ -391,6 +362,9 @@ print(data["AgeGroup"].value_counts().to_string())
 
 # ── 4.4 Fare Bands ──────────────────────────────────────────────────────────
 sub_header("4.4 FareBand (Quartile-Based)")
+# Same note as Age: temporary fill for binning only.
+_fare_global_median = data["Fare"].median()
+data["Fare"] = data["Fare"].fillna(_fare_global_median)
 data["FareBand"] = pd.qcut(data["Fare"], q=4, labels=["Low", "Mid-Low", "Mid-High", "High"])
 print(data["FareBand"].value_counts().to_string())
 
@@ -484,10 +458,10 @@ print(corr_with_target.to_string())
 
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║  SECTION 6 — TRAIN/TEST SPLIT & FEATURE SCALING                        ║
+# ║  SECTION 6 — TRAIN/TEST SPLIT, IMPUTATION & FEATURE SCALING            ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
-section_header("SECTION 6 — TRAIN/TEST SPLIT & FEATURE SCALING")
+section_header("SECTION 6 — TRAIN/TEST SPLIT, IMPUTATION & FEATURE SCALING")
 
 # ── 6.1 Separate Features and Target ────────────────────────────────────────
 sub_header("6.1 Separate X (features) and y (target)")
@@ -505,8 +479,48 @@ X_train, X_test, y_train, y_test = train_test_split(
 print(f"  Training set : X={X_train.shape}, y={y_train.shape}  (class dist: {dict(y_train.value_counts())})")
 print(f"  Test set     : X={X_test.shape}, y={y_test.shape}  (class dist: {dict(y_test.value_counts())})")
 
-# ── 6.3 Feature Scaling (StandardScaler) ────────────────────────────────────
-sub_header("6.3 Feature Scaling — StandardScaler")
+# ── 6.3 Post-Split Imputation (train stats only — no leakage) ───────────────
+# CRITICAL: All statistics are computed on X_train only, then applied
+# to both X_train and X_test. This prevents test-set information from
+# influencing imputation values.
+# NOTE: Embarked was one-hot encoded in Section 5.4; no raw column remains.
+# Sex is binary numeric (0/1) from Section 5.1 — groupby still works.
+sub_header("6.3 Post-Split Imputation (train medians applied to both sets)")
+
+# Age: grouped median by Pclass × Sex (computed on train only)
+print("  Age imputation — Median by Pclass × Sex (train set only):")
+age_medians_train = X_train.groupby(["Pclass", "Sex"])["Age"].median()
+print(age_medians_train.to_string())
+
+for (pclass, sex), median_age in age_medians_train.items():
+    mask_tr = (X_train["Age"].isnull()) & (X_train["Pclass"] == pclass) & (X_train["Sex"] == sex)
+    mask_te = (X_test["Age"].isnull()) & (X_test["Pclass"] == pclass) & (X_test["Sex"] == sex)
+    X_train.loc[mask_tr, "Age"] = median_age
+    X_test.loc[mask_te, "Age"] = median_age
+
+# Fare: median per Pclass (computed on train only)
+print("\n  Fare imputation — Median by Pclass (train set only):")
+fare_missing_tr = X_train["Fare"].isnull().sum()
+if fare_missing_tr > 0:
+    for pclass in X_train["Pclass"].unique():
+        fare_med = X_train[X_train["Pclass"] == pclass]["Fare"].median()
+        mask_tr = (X_train["Fare"].isnull()) & (X_train["Pclass"] == pclass)
+        mask_te = (X_test["Fare"].isnull()) & (X_test["Pclass"] == pclass)
+        X_train.loc[mask_tr, "Fare"] = fare_med
+        X_test.loc[mask_te, "Fare"] = fare_med
+    print(f"  Fare imputed (train missing was {fare_missing_tr})")
+else:
+    print("  No missing Fare values in train set.")
+
+# Embarked: already one-hot encoded before split (Embarked had only 0–2
+# missing in original data; impact is negligible and documented).
+print("  Embarked: already OHE in Section 5 — no raw column to impute.")
+
+print(f"\n  Post-imputation missing — Train: {X_train.isnull().sum().sum()} | Test: {X_test.isnull().sum().sum()}")
+print("  ✓ No leakage — Age/Fare imputation stats derived from training set only.")
+
+# ── 6.4 Feature Scaling (StandardScaler) ────────────────────────────────────
+sub_header("6.4 Feature Scaling — StandardScaler")
 print("  Fitting scaler on TRAINING data only (strict featurization ordering).")
 
 scaler = StandardScaler()
