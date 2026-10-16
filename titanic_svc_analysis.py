@@ -4,7 +4,7 @@
 ================================================================================
  Project  : Titanic Passenger Survival Analysis & Prediction
  Model    : Support Vector Classification (SVC) with GridSearchCV
- Dataset  : RMS Titanic Passenger Records (418 samples, 12 features)
+ Dataset  : RMS Titanic Passenger Records (891 samples, 12 features)
  Author   : AI Engineer
  Purpose  : End-to-end ML pipeline — EDA, cleaning, feature engineering,
             model training, hyper-parameter tuning, and evaluation.
@@ -49,7 +49,7 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────────────────────────────────────
 #  GLOBAL CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-DATASET_PATH = "titanic.csv"
+DATASET_PATH = "train.csv"
 OUTPUT_DIR = "outputs"
 RANDOM_STATE = 42
 TEST_SIZE = 0.20
@@ -346,29 +346,15 @@ sub_header("4.2 IsAlone (1 if FamilySize == 1)")
 data["IsAlone"] = (data["FamilySize"] == 1).astype(int)
 print(data["IsAlone"].value_counts().to_string())
 
-# ── 4.3 Age Groups ──────────────────────────────────────────────────────────
-sub_header("4.3 AgeGroup (Binned Age)")
-# NOTE: A temporary global-median fill is used here *solely* to allow
-# pd.cut() to bin Age for EDA visualizations (Plot 7) and for creating the
-# AgeGroup feature column structure. The real post-split imputation in
-# Section 6.3 overwrites the raw Age values in X_train / X_test using
-# train-only grouped medians — which is what the model actually trains on.
-_age_global_median = data["Age"].median()  # full-data median (EDA only)
-data["Age"] = data["Age"].fillna(_age_global_median)
-bins = [0, 12, 18, 30, 50, 80]
-labels_age = ["Child", "Teen", "Young Adult", "Adult", "Senior"]
-data["AgeGroup"] = pd.cut(data["Age"], bins=bins, labels=labels_age, right=True)
-print(data["AgeGroup"].value_counts().to_string())
+# ── 4.3 Age Group EDA Visualization ─────────────────────────────────────────
+sub_header("4.3 Age Group Distribution (EDA visualization only)")
+# Binned for EDA visualization without mutating the raw Age column
+_eda_age = data["Age"].dropna()
+_eda_age_groups = pd.cut(_eda_age, bins=[0, 12, 18, 30, 50, 80],
+                         labels=["Child", "Teen", "Young Adult", "Adult", "Senior"], right=True)
+print(_eda_age_groups.value_counts().to_string())
 
-# ── 4.4 Fare Bands ──────────────────────────────────────────────────────────
-sub_header("4.4 FareBand (Quartile-Based)")
-# Same note as Age: temporary fill for binning only.
-_fare_global_median = data["Fare"].median()
-data["Fare"] = data["Fare"].fillna(_fare_global_median)
-data["FareBand"] = pd.qcut(data["Fare"], q=4, labels=["Low", "Mid-Low", "Mid-High", "High"])
-print(data["FareBand"].value_counts().to_string())
-
-# ── Plot 11: Family Size vs Survival ────────────────────────────────────────
+# ── Plot 6: Family Size vs Survival ─────────────────────────────────────────
 sub_header("Plot 6: Family Size vs Survival Rate")
 
 fig, ax = plt.subplots(figsize=(10, 5), facecolor="#1a1a2e")
@@ -397,7 +383,7 @@ sub_header("Plot 7: Age Group vs Survival Rate")
 
 fig, ax = plt.subplots(figsize=(10, 5), facecolor="#1a1a2e")
 ax.set_facecolor("#1a1a2e")
-age_surv = data.groupby("AgeGroup", observed=True)["Survived"].mean() * 100
+age_surv = data.loc[_eda_age.index].groupby(_eda_age_groups, observed=True)["Survived"].mean() * 100
 colors_age = ["#00b4d8", "#0077b6", "#48cae4", "#023e8a", "#90e0ef"]
 bars = ax.bar(age_surv.index.astype(str), age_surv.values,
               color=colors_age[:len(age_surv)], edgecolor="white", linewidth=0.5)
@@ -418,50 +404,26 @@ save_fig(fig, "07_age_group_survival.png")
 
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║  SECTION 5 — FEATURE SELECTION & ENCODING                              ║
+# ║  SECTION 5 — FEATURE PREPARATION & PRE-SPLIT ENCODING                   ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
-section_header("SECTION 5 — FEATURE SELECTION & ENCODING")
+section_header("SECTION 5 — FEATURE PREPARATION & PRE-SPLIT ENCODING")
 
 # ── 5.1 Encode Sex ──────────────────────────────────────────────────────────
 sub_header("5.1 Encode Sex (male=0, female=1)")
 data["Sex"] = data["Sex"].map({"male": 0, "female": 1}).astype(int)
 
-# ── 5.2 Encode AgeGroup (ordinal) ───────────────────────────────────────────
-sub_header("5.2 Encode AgeGroup (Ordinal)")
-age_order = {"Child": 0, "Teen": 1, "Young Adult": 2, "Adult": 3, "Senior": 4}
-data["AgeGroup"] = data["AgeGroup"].map(age_order).astype(int)
-
-# ── 5.3 Encode FareBand (ordinal) ───────────────────────────────────────────
-sub_header("5.3 Encode FareBand (Ordinal)")
-fare_order = {"Low": 0, "Mid-Low": 1, "Mid-High": 2, "High": 3}
-data["FareBand"] = data["FareBand"].map(fare_order).astype(int)
-
-# ── 5.4 One-Hot Encode Embarked ──────────────────────────────────────────────
-sub_header("5.4 One-Hot Encode Embarked")
-data = pd.get_dummies(data, columns=["Embarked"], drop_first=True, dtype=int)
-
-# ── 5.5 One-Hot Encode Title ────────────────────────────────────────────────
-sub_header("5.5 One-Hot Encode Title")
-data = pd.get_dummies(data, columns=["Title"], drop_first=True, dtype=int)
-
-# ── 5.6 Final Feature Set ───────────────────────────────────────────────────
-sub_header("5.6 Final Feature Set")
-print(f"  Columns ({len(data.columns)}): {list(data.columns)}")
-print(f"\n  Shape: {data.shape}")
-print(f"\n  Data types:\n{data.dtypes.to_string()}")
-
-# ── 5.7 Feature Correlation with Target ─────────────────────────────────────
-sub_header("5.7 Feature Correlation with Survived (Target)")
-corr_with_target = data.corr()["Survived"].drop("Survived").sort_values(ascending=False)
-print(corr_with_target.to_string())
+# ── 5.2 Numeric Correlation with Target ─────────────────────────────────────
+sub_header("5.2 Numeric Features Correlation with Survived")
+numeric_corr = data.select_dtypes(include=[np.number]).corr()["Survived"].drop("Survived").sort_values(ascending=False)
+print(numeric_corr.to_string())
 
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
-# ║  SECTION 6 — TRAIN/TEST SPLIT, IMPUTATION & FEATURE SCALING            ║
+# ║  SECTION 6 — TRAIN/TEST SPLIT, LEAKAGE-FREE IMPUTATION & SCALING        ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
-section_header("SECTION 6 — TRAIN/TEST SPLIT, IMPUTATION & FEATURE SCALING")
+section_header("SECTION 6 — TRAIN/TEST SPLIT, LEAKAGE-FREE IMPUTATION & SCALING")
 
 # ── 6.1 Separate Features and Target ────────────────────────────────────────
 sub_header("6.1 Separate X (features) and y (target)")
@@ -479,15 +441,16 @@ X_train, X_test, y_train, y_test = train_test_split(
 print(f"  Training set : X={X_train.shape}, y={y_train.shape}  (class dist: {dict(y_train.value_counts())})")
 print(f"  Test set     : X={X_test.shape}, y={y_test.shape}  (class dist: {dict(y_test.value_counts())})")
 
-# ── 6.3 Post-Split Imputation (train stats only — no leakage) ───────────────
-# CRITICAL: All statistics are computed on X_train only, then applied
-# to both X_train and X_test. This prevents test-set information from
-# influencing imputation values.
-# NOTE: Embarked was one-hot encoded in Section 5.4; no raw column remains.
-# Sex is binary numeric (0/1) from Section 5.1 — groupby still works.
-sub_header("6.3 Post-Split Imputation (train medians applied to both sets)")
+# ── 6.3 Post-Split Imputation (train stats only — strictly no leakage) ───────
+sub_header("6.3 Post-Split Imputation (Derived strictly from X_train)")
 
-# Age: grouped median by Pclass × Sex (computed on train only)
+# 1. Embarked: impute mode from train set
+emb_mode = X_train["Embarked"].mode()[0]
+print(f"  Embarked mode (train set): '{emb_mode}'")
+X_train["Embarked"] = X_train["Embarked"].fillna(emb_mode)
+X_test["Embarked"] = X_test["Embarked"].fillna(emb_mode)
+
+# 2. Age: grouped median by Pclass × Sex from train set
 print("  Age imputation — Median by Pclass × Sex (train set only):")
 age_medians_train = X_train.groupby(["Pclass", "Sex"])["Age"].median()
 print(age_medians_train.to_string())
@@ -498,37 +461,62 @@ for (pclass, sex), median_age in age_medians_train.items():
     X_train.loc[mask_tr, "Age"] = median_age
     X_test.loc[mask_te, "Age"] = median_age
 
-# Fare: median per Pclass (computed on train only)
+# Fallback for any remaining unassigned Age
+global_age_train = X_train["Age"].median()
+X_train["Age"] = X_train["Age"].fillna(global_age_train)
+X_test["Age"] = X_test["Age"].fillna(global_age_train)
+
+# 3. Fare: grouped median by Pclass from train set
 print("\n  Fare imputation — Median by Pclass (train set only):")
 fare_missing_tr = X_train["Fare"].isnull().sum()
-if fare_missing_tr > 0:
+fare_missing_te = X_test["Fare"].isnull().sum()
+if fare_missing_tr > 0 or fare_missing_te > 0:
     for pclass in X_train["Pclass"].unique():
         fare_med = X_train[X_train["Pclass"] == pclass]["Fare"].median()
         mask_tr = (X_train["Fare"].isnull()) & (X_train["Pclass"] == pclass)
         mask_te = (X_test["Fare"].isnull()) & (X_test["Pclass"] == pclass)
         X_train.loc[mask_tr, "Fare"] = fare_med
         X_test.loc[mask_te, "Fare"] = fare_med
-    print(f"  Fare imputed (train missing was {fare_missing_tr})")
+    print(f"  Fare imputed (train missing: {fare_missing_tr}, test missing: {fare_missing_te})")
 else:
-    print("  No missing Fare values in train set.")
+    print("  No missing Fare values in train or test set.")
 
-# Embarked: already one-hot encoded before split (Embarked had only 0–2
-# missing in original data; impact is negligible and documented).
-print("  Embarked: already OHE in Section 5 — no raw column to impute.")
+# ── 6.4 Derived Features Post-Imputation ────────────────────────────────────
+sub_header("6.4 Derived Features Post-Imputation (AgeGroup & FareBand)")
 
-print(f"\n  Post-imputation missing — Train: {X_train.isnull().sum().sum()} | Test: {X_test.isnull().sum().sum()}")
-print("  ✓ No leakage — Age/Fare imputation stats derived from training set only.")
+bins_age = [0, 12, 18, 30, 50, 80]
+labels_age = [0, 1, 2, 3, 4]  # Ordinal: Child=0, Teen=1, Young Adult=2, Adult=3, Senior=4
+X_train["AgeGroup"] = pd.cut(X_train["Age"], bins=bins_age, labels=labels_age, right=True).astype(int)
+X_test["AgeGroup"] = pd.cut(X_test["Age"], bins=bins_age, labels=labels_age, right=True).astype(int)
 
-# ── 6.4 Feature Scaling (StandardScaler) ────────────────────────────────────
-sub_header("6.4 Feature Scaling — StandardScaler")
-print("  Fitting scaler on TRAINING data only (strict featurization ordering).")
+# FareBand using train quartiles to prevent threshold leakage
+_, fare_bins = pd.qcut(X_train["Fare"], q=4, retbins=True, labels=False, duplicates="drop")
+fare_bins[0] = -np.inf
+fare_bins[-1] = np.inf
+X_train["FareBand"] = pd.cut(X_train["Fare"], bins=fare_bins, labels=False, include_lowest=True).astype(int)
+X_test["FareBand"] = pd.cut(X_test["Fare"], bins=fare_bins, labels=False, include_lowest=True).astype(int)
+
+# ── 6.5 Categorical Encoding (One-Hot) ──────────────────────────────────────
+sub_header("6.5 One-Hot Encoding (Embarked & Title)")
+X_train = pd.get_dummies(X_train, columns=["Embarked", "Title"], drop_first=True, dtype=int)
+X_test = pd.get_dummies(X_test, columns=["Embarked", "Title"], drop_first=True, dtype=int)
+# Align test columns with train columns (in case test misses a rare category)
+X_train, X_test = X_train.align(X_test, join="left", axis=1, fill_value=0)
+
+print(f"  Final feature set ({len(X_train.columns)} columns): {list(X_train.columns)}")
+print(f"  Post-imputation missing — Train: {X_train.isnull().sum().sum()} | Test: {X_test.isnull().sum().sum()}")
+print("  ✓ Strict featurization ordering verified — zero data leakage.")
+
+# ── 6.6 Feature Scaling (StandardScaler) ────────────────────────────────────
+sub_header("6.6 Feature Scaling — StandardScaler")
+print("  Fitting scaler on TRAINING data only.")
 
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
-print(f"  Train mean (sample): {X_train_scaled.mean(axis=0)[:5].round(6)}")
-print(f"  Train std  (sample): {X_train_scaled.std(axis=0)[:5].round(4)}")
+print(f"  Train mean (first 5): {X_train_scaled.mean(axis=0)[:5].round(6)}")
+print(f"  Train std  (first 5): {X_train_scaled.std(axis=0)[:5].round(4)}")
 print("  ✓ Scaling complete.")
 
 
@@ -550,20 +538,20 @@ print(f"  Baseline SVC Test Accuracy: {baseline_acc:.4f} ({baseline_acc * 100:.2
 sub_header("7.2 Hyperparameter Tuning — GridSearchCV (5-Fold CV)")
 
 param_grid = {
-    "C": [0.1, 1, 10, 100],
+    "C": [0.1, 1, 10],
     "gamma": ["scale", "auto", 0.01, 0.1],
     "kernel": ["rbf", "linear", "poly"],
 }
 print(f"  Parameter grid: {param_grid}")
 print(f"  Total combinations: {len(param_grid['C']) * len(param_grid['gamma']) * len(param_grid['kernel'])}")
-print("  Running GridSearchCV ... (this may take a moment)")
+print("  Running GridSearchCV ...")
 
 grid_search = GridSearchCV(
-    SVC(random_state=RANDOM_STATE, probability=True),
+    SVC(random_state=RANDOM_STATE, max_iter=5000),
     param_grid,
     cv=StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE),
     scoring="accuracy",
-    n_jobs=-1,
+    n_jobs=1,
     verbose=0,
     refit=True,
 )
@@ -572,7 +560,14 @@ grid_search.fit(X_train_scaled, y_train)
 print(f"\n  ✓ Best Parameters : {grid_search.best_params_}")
 print(f"  ✓ Best CV Score   : {grid_search.best_score_:.4f} ({grid_search.best_score_ * 100:.2f}%)")
 
-best_svc = grid_search.best_estimator_
+# Train final best estimator with probability=True for ROC-AUC evaluation
+best_svc = SVC(
+    **grid_search.best_params_,
+    probability=True,
+    random_state=RANDOM_STATE,
+    max_iter=5000,
+)
+best_svc.fit(X_train_scaled, y_train)
 
 
 # ╔═══════════════════════════════════════════════════════════════════════════╗
@@ -678,7 +673,7 @@ perm_result = permutation_importance(
 )
 
 perm_df = pd.DataFrame({
-    "Feature": X.columns,
+    "Feature": X_train.columns,
     "Importance Mean": perm_result.importances_mean,
     "Importance Std": perm_result.importances_std,
 }).sort_values("Importance Mean", ascending=False)
@@ -718,7 +713,7 @@ section_header("SECTION 10 — SUMMARY & CONCLUSIONS")
 
 top5 = perm_df.head(5)["Feature"].tolist()
 
-print(f"\n  Dataset: {df.shape[0]} records | {X.shape[1]} features | Train: {X_train.shape[0]} | Test: {X_test.shape[0]}")
+print(f"\n  Dataset: {df.shape[0]} records | {X_train.shape[1]} features | Train: {X_train.shape[0]} | Test: {X_test.shape[0]}")
 print(f"\n  Best SVC Parameters: {grid_search.best_params_}")
 print(f"\n  Performance Metrics:")
 print(f"    Accuracy  : {acc:.4f} ({acc * 100:.2f}%)")

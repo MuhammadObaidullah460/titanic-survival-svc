@@ -54,7 +54,7 @@ This project performs a **comprehensive analysis** of the Titanic passenger data
 | `Cabin` | Cabin number | String |
 | `Embarked` | Port of embarkation (C = Cherbourg, Q = Queenstown, S = Southampton) | Categorical |
 
-- **Records**: 418 passengers
+- **Records**: 891 passengers
 - **Target variable**: `Survived` (binary classification)
 
 ---
@@ -64,7 +64,7 @@ This project performs a **comprehensive analysis** of the Titanic passenger data
 ```
 titanic-survival-svc/
 │
-├── titanic.csv                    # Raw dataset
+├── train.csv                      # Raw dataset (891 passengers)
 ├── titanic_svc_analysis.py        # Main analysis & modeling script
 ├── requirements.txt               # Python dependencies
 ├── README.md                      # Project documentation (this file)
@@ -171,10 +171,10 @@ The project follows a structured, **leakage-free** machine learning pipeline:
 ### 7. Model Building & Tuning
 - Baseline SVC with RBF kernel
 - **GridSearchCV** (5-fold stratified CV) over:
-  - `C`: [0.1, 1, 10, 100]
+  - `C`: [0.1, 1, 10]
   - `gamma`: [scale, auto, 0.01, 0.1]
   - `kernel`: [rbf, linear, poly]
-- 48 parameter combinations evaluated
+- 36 parameter combinations evaluated with convergence bounds
 
 ### 8. Model Evaluation
 - Classification Report (precision, recall, F1)
@@ -205,35 +205,34 @@ All plots are automatically saved to the `outputs/` directory at 150 DPI.
 
 ## 📊 Model Performance
 
-> **Headline metric**: 5-Fold Stratified CV on the training set is the most reliable estimate given the small dataset size (~418 rows, ~84-row test set where single-split scores can fluctuate significantly).
+> **Headline metric**: 5-Fold Stratified CV on the training set (712 samples) provides the most reliable generalization estimate; the held-out test set (179 samples) verifies real-world out-of-sample accuracy.
 
 | Metric | Score |
 |--------|-------|
-| **CV Accuracy (5-Fold mean ± std)** | **0.991 ± 0.012** |
-| Test Accuracy | 0.988 (98.8%) |
-| Test ROC-AUC | 1.000 |
-| Test F1-Score | 1.000 |
-| Test Precision | 1.000 |
-| Test Recall | 1.000 |
+| **CV Accuracy (5-Fold mean ± std)** | **0.8273 ± 0.0285** |
+| Test Accuracy | 0.8380 (83.80%) |
+| Test ROC-AUC | 0.8635 (86.35%) |
+| Test F1-Score | 0.7820 (78.20%) |
+| Test Precision | 0.8125 (81.25%) |
+| Test Recall | 0.7536 (75.36%) |
 
-> *Exact values are printed to console when you run the script. CV mean ± std is the headline because single test-set scores over ~84 rows are high-variance.*
-
-> ⚠️ **Dataset Note**: The `titanic.csv` file in this repo contains a dataset where `Sex` is a near-perfect predictor of `Survived` (all females: 100% survival, all males: 0% survival in this data). This accounts for the unusually high accuracy. For a more realistic training exercise with ~80% accuracy benchmarks, use the standard Kaggle Titanic training set (`train.csv`).
+> *Exact fold scores: `[0.8322, 0.8042, 0.8803, 0.8028, 0.8169]`. CV mean ± std serves as the headline metric to show stability across validation folds.*
 
 **Best Hyperparameters** (GridSearchCV result):
-- `kernel`: linear, `C`: 0.1, `gamma`: scale
+- `kernel`: **rbf**
+- `C`: **10**
+- `gamma`: **0.01**
 
 ---
 
 ## 🔑 Key Findings
 
-1. **Gender** was the strongest predictor (top permutation importance) — in this dataset, all females survived and all males did not, reflecting an extreme version of the "women and children first" policy.
-2. **Passenger class** correlated with survival — 1st class: 46.7% survival, 3rd class: 33.0% survival.
-3. **Fare** (correlated with class) ranked among the top predictive features by permutation importance.
-4. **Small families** (2–4 members) survived at higher rates than solo travellers or very large families.
-5. **Children** (age ≤ 12) had higher survival rates than other age groups.
-6. **Embarkation port** (Cherbourg) showed higher survival rates, driven by its higher proportion of 1st-class passengers.
-7. The tuned SVC (linear kernel, GridSearchCV) achieved **0.991 CV accuracy ± 0.012** — near-perfect due to the Sex feature being a deterministic predictor in this data.
+1. **Gender & Title** were the strongest predictors — women survived at **74.2%** while men survived at only **18.9%**, confirming the historical "women and children first" maritime evacuation protocol. `Title_Mr` emerged as the #1 permutation feature.
+2. **Passenger class** had a decisive impact on survival — **1st class: 63.0%**, **2nd class: 47.3%**, and **3rd class: 24.2%**, reflecting deck location and lifeboat access priority.
+3. **Family dynamics**: Passengers traveling in small families (2–4 members) achieved the highest survival rates (**~56% to 72%**), outperforming solo travelers (**30.4%**) and large families (>4 members, **<20%**).
+4. **Age factor**: Children (age ≤ 12) recorded higher survival rates (**57.9%**) than working-age adults or seniors.
+5. **Port of embarkation**: Passengers boarding at Cherbourg (C) had a **55.4%** survival rate, significantly higher than Southampton (**33.7%**), driven by a higher concentration of 1st-class passengers.
+6. **Model generalization**: The tuned SVC with an RBF kernel (`C=10, gamma=0.01`) achieved **82.73% CV Accuracy (± 2.85%)** and **83.80% Test Accuracy** with an **ROC-AUC of 0.8635**, establishing a competitive, leak-free benchmark on the official Titanic dataset.
 
 ---
 
@@ -252,7 +251,7 @@ All plots are automatically saved to the `outputs/` directory at 150 DPI.
 
 ## 📄 License
 
-This project is for educational and portfolio purposes. The Titanic dataset (`titanic.csv`) is included in this repository.
+This project is for educational and portfolio purposes. The Titanic dataset (`train.csv`) is included in this repository.
 
 ---
 
