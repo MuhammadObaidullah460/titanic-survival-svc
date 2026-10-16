@@ -538,13 +538,13 @@ print(f"  Baseline SVC Test Accuracy: {baseline_acc:.4f} ({baseline_acc * 100:.2
 sub_header("7.2 Hyperparameter Tuning — GridSearchCV (5-Fold CV)")
 
 param_grid = {
-    "C": [0.1, 1, 10],
-    "gamma": ["scale", "auto", 0.01, 0.1],
+    "C": [0.1, 1, 5, 10, 20, 50, 100],
+    "gamma": ["scale", "auto", 0.005, 0.01, 0.05, 0.1],
     "kernel": ["rbf", "linear", "poly"],
 }
 print(f"  Parameter grid: {param_grid}")
 print(f"  Total combinations: {len(param_grid['C']) * len(param_grid['gamma']) * len(param_grid['kernel'])}")
-print("  Running GridSearchCV ...")
+print("  Running GridSearchCV (exploring C up to 100) ...")
 
 grid_search = GridSearchCV(
     SVC(random_state=RANDOM_STATE, max_iter=5000),
@@ -680,7 +680,15 @@ perm_df = pd.DataFrame({
 
 print(perm_df.to_string(index=False))
 
-# ── Plot 16: Feature Importance ──────────────────────────────────────────────
+sub_header("9.2 Feature Collinearity & Importance Note")
+print("  ⚠ Note on Sex vs. Title_Mr importance:")
+print("    Title_Mr is heavily collinear with Sex (male=0, female=1).")
+print("    In permutation importance, when two features share redundant information,")
+print("    shuffling one feature still leaves the other intact for the model to use.")
+print("    Therefore, the near-zero score for 'Sex' does NOT mean gender was unimportant;")
+print("    rather, its predictive power was largely captured and absorbed by 'Title_Mr'.")
+
+# ── Plot 10: Feature Importance ──────────────────────────────────────────────
 sub_header("Plot 10: Permutation Feature Importance")
 
 perm_sorted = perm_df.sort_values("Importance Mean", ascending=True)
@@ -713,23 +721,45 @@ section_header("SECTION 10 — SUMMARY & CONCLUSIONS")
 
 top5 = perm_df.head(5)["Feature"].tolist()
 
+# Compute empirical statistics directly from dataset (no hardcoded claims)
+surv_rate_overall = df["Survived"].mean() * 100
+fem_rate = df[df["Sex"] == "female"]["Survived"].mean() * 100
+male_rate = df[df["Sex"] == "male"]["Survived"].mean() * 100
+p1_rate = df[df["Pclass"] == 1]["Survived"].mean() * 100
+p2_rate = df[df["Pclass"] == 2]["Survived"].mean() * 100
+p3_rate = df[df["Pclass"] == 3]["Survived"].mean() * 100
+
+fam_sizes = df["SibSp"] + df["Parch"] + 1
+solo_rate = df[fam_sizes == 1]["Survived"].mean() * 100
+small_fam_rate = df[(fam_sizes >= 2) & (fam_sizes <= 4)]["Survived"].mean() * 100
+large_fam_rate = df[fam_sizes > 4]["Survived"].mean() * 100
+
+child_rate = df[df["Age"] <= 12]["Survived"].mean() * 100
+adult_rate = df[df["Age"] > 12]["Survived"].mean() * 100
+
+# Sampling noise on 179-row test set at 95% confidence interval
+test_noise_margin = 1.96 * np.sqrt((acc * (1 - acc)) / len(y_test)) * 100
+
 print(f"\n  Dataset: {df.shape[0]} records | {X_train.shape[1]} features | Train: {X_train.shape[0]} | Test: {X_test.shape[0]}")
 print(f"\n  Best SVC Parameters: {grid_search.best_params_}")
 print(f"\n  Performance Metrics:")
-print(f"    Accuracy  : {acc:.4f} ({acc * 100:.2f}%)")
-print(f"    Precision : {prec:.4f}")
-print(f"    Recall    : {rec:.4f}")
-print(f"    F1-Score  : {f1:.4f}")
-print(f"    ROC-AUC   : {roc_auc:.4f}")
-print(f"    CV Score  : {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+print(f"    Headline CV Score : {cv_scores.mean():.4f} ± {cv_scores.std():.4f} (5-Fold Stratified)")
+print(f"    Test Accuracy     : {acc:.4f} ({acc * 100:.2f}%) [Sampling noise: ±{test_noise_margin:.1f}% on N={len(y_test)}]")
+print(f"    Precision         : {prec:.4f}")
+print(f"    Recall            : {rec:.4f}")
+print(f"    F1-Score          : {f1:.4f}")
+print(f"    ROC-AUC           : {roc_auc:.4f}")
 print(f"\n  Top 5 Predictive Features:")
 for i, feat in enumerate(top5, 1):
     print(f"    {i}. {feat}")
-print(f"\n  Key Insights:")
-print(f"    - Women had much higher survival rates (women and children first).")
-print(f"    - 1st class passengers survived at higher rates than 2nd/3rd class.")
-print(f"    - Small families (2-4) survived more than solo or large families.")
-print(f"    - Children with families had better survival odds.")
+print(f"\n  Key Insights (Empirically computed from dataset):")
+print(f"    - Overall Survival: {surv_rate_overall:.1f}% ({df['Survived'].sum()}/{len(df)} passengers).")
+print(f"    - Gender Disparity: Females survived at {fem_rate:.1f}% vs. {male_rate:.1f}% for males.")
+print(f"    - Passenger Class : 1st Class={p1_rate:.1f}%, 2nd Class={p2_rate:.1f}%, 3rd Class={p3_rate:.1f}%.")
+print(f"    - Family Structure: Small families (2-4) survived at {small_fam_rate:.1f}% vs. {solo_rate:.1f}% for solo travelers and {large_fam_rate:.1f}% for large families (>4).")
+print(f"    - Age Demographics: Children (≤12 yrs) survived at {child_rate:.1f}% vs. {adult_rate:.1f}% for passengers >12.")
+print(f"    - Feature Collinearity: 'Title_Mr' absorbed the 'Sex' feature importance due to strong negative correlation.")
+print(f"    - Metric Headline : 5-Fold CV is the headline metric because single test-split accuracy over {len(y_test)} rows has ±{test_noise_margin:.1f}% sample variance.")
 
 print(f"\n  All {len([f for f in os.listdir(OUTPUT_DIR) if f.endswith('.png')])} visualizations saved to: ./{OUTPUT_DIR}/")
 print("\n" + "=" * 80)

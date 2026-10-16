@@ -170,21 +170,21 @@ The project follows a structured, **leakage-free** machine learning pipeline:
 
 ### 7. Model Building & Tuning
 - Baseline SVC with RBF kernel
-- **GridSearchCV** (5-fold stratified CV) over:
-  - `C`: [0.1, 1, 10]
-  - `gamma`: [scale, auto, 0.01, 0.1]
+- **GridSearchCV** (5-fold stratified CV) over an expanded search space:
+  - `C`: [0.1, 1, 5, 10, 20, 50, 100] (expanded to ensure the optimal C is not constrained at the grid boundary)
+  - `gamma`: [scale, auto, 0.005, 0.01, 0.05, 0.1]
   - `kernel`: [rbf, linear, poly]
-- 36 parameter combinations evaluated with convergence bounds
+- 126 parameter combinations systematically evaluated
 
 ### 8. Model Evaluation
 - Classification Report (precision, recall, F1)
 - Confusion Matrix
 - ROC Curve with AUC
-- 5-Fold Cross-Validation scores
+- 5-Fold Cross-Validation scores across all folds
 
-### 9. Feature Importance
-- Permutation importance analysis (30 repeats)
-- Identifies the most influential features for survival prediction
+### 9. Feature Importance & Collinearity Analysis
+- Permutation importance analysis (30 repeats on the test split)
+- Identification of leading predictors and collinear feature handling
 
 ---
 
@@ -205,34 +205,55 @@ All plots are automatically saved to the `outputs/` directory at 150 DPI.
 
 ## 📊 Model Performance
 
-> **Headline metric**: 5-Fold Stratified CV on the training set (712 samples) provides the most reliable generalization estimate; the held-out test set (179 samples) verifies real-world out-of-sample accuracy.
+> ### 🏆 Headline Metric: **5-Fold Stratified CV Accuracy = 0.8301 ± 0.0305 (83.01% ± 3.05%)**
+>
+> **Why CV is the headline instead of a single test score?**
+> The held-out test set contains only **179 passengers**. At this sample size:
+> - A difference of just 1 passenger changes the test accuracy by **~0.56%**.
+> - The binomial standard error ($1.96 \times \sqrt{p(1-p)/N}$) on 179 samples introduces an intrinsic **$\pm 5.7\%$ sampling variance** (noise margin).
+> - Evaluating only on a single 179-row split produces volatile numbers. 
+> 
+> Therefore, **5-Fold Stratified Cross-Validation on the 712 training samples** (`[0.8462, 0.7972, 0.8803, 0.8239, 0.8028]`) serves as the true, robust generalization headline metric.
 
-| Metric | Score |
-|--------|-------|
-| **CV Accuracy (5-Fold mean ± std)** | **0.8273 ± 0.0285** |
-| Test Accuracy | 0.8380 (83.80%) |
-| Test ROC-AUC | 0.8635 (86.35%) |
-| Test F1-Score | 0.7820 (78.20%) |
-| Test Precision | 0.8125 (81.25%) |
-| Test Recall | 0.7536 (75.36%) |
+| Metric | Score | Note |
+|--------|-------|------|
+| **CV Accuracy (5-Fold mean ± std)** | **0.8301 ± 0.0305** | **Headline metric** (stable across 712 train samples) |
+| Test Accuracy | 0.8156 (81.56%) | Evaluated on 179 held-out test rows ($\pm 5.7\%$ noise margin) |
+| Test Precision | 0.8333 (83.33%) | High survivor prediction precision |
+| Test Recall | 0.6522 (65.22%) | Captured 45 of 69 test survivors |
+| Test F1-Score | 0.7317 (73.17%) | Harmonic mean of precision & recall |
+| Test ROC-AUC | 0.8523 (85.23%) | Strong overall ranking discrimination |
 
-> *Exact fold scores: `[0.8322, 0.8042, 0.8803, 0.8028, 0.8169]`. CV mean ± std serves as the headline metric to show stability across validation folds.*
-
-**Best Hyperparameters** (GridSearchCV result):
+**Optimal Hyperparameters** (GridSearchCV result):
 - `kernel`: **rbf**
-- `C`: **10**
+- `C`: **50** *(found within the expanded interior grid [0.1 .. 100], not constrained at the edge)*
 - `gamma`: **0.01**
 
 ---
 
-## 🔑 Key Findings
+## 🔍 Feature Collinearity & Importance Note
 
-1. **Gender & Title** were the strongest predictors — women survived at **74.2%** while men survived at only **18.9%**, confirming the historical "women and children first" maritime evacuation protocol. `Title_Mr` emerged as the #1 permutation feature.
-2. **Passenger class** had a decisive impact on survival — **1st class: 63.0%**, **2nd class: 47.3%**, and **3rd class: 24.2%**, reflecting deck location and lifeboat access priority.
-3. **Family dynamics**: Passengers traveling in small families (2–4 members) achieved the highest survival rates (**~56% to 72%**), outperforming solo travelers (**30.4%**) and large families (>4 members, **<20%**).
-4. **Age factor**: Children (age ≤ 12) recorded higher survival rates (**57.9%**) than working-age adults or seniors.
-5. **Port of embarkation**: Passengers boarding at Cherbourg (C) had a **55.4%** survival rate, significantly higher than Southampton (**33.7%**), driven by a higher concentration of 1st-class passengers.
-6. **Model generalization**: The tuned SVC with an RBF kernel (`C=10, gamma=0.01`) achieved **82.73% CV Accuracy (± 2.85%)** and **83.80% Test Accuracy** with an **ROC-AUC of 0.8635**, establishing a competitive, leak-free benchmark on the official Titanic dataset.
+In the permutation feature importance analysis, `Title_Mr` ranks as the **#1 most important feature**, while raw `Sex` shows near-zero importance.
+
+> **Collinearity Insight**:
+> `Title_Mr` is nearly perfectly collinear with `Sex` (correlation $\approx -0.87$), because the title "Mr." strictly designates adult males. 
+> 
+> In permutation importance, when two features carry redundant information, shuffling one feature (`Sex`) leaves the other feature (`Title_Mr`) completely intact for the SVC decision boundary to use. 
+> 
+> **Conclusion**: The near-zero score for `Sex` does **NOT** mean gender was unimportant; rather, the gender effect was completely absorbed and captured by `Title_Mr`.
+
+---
+
+## 🔑 Key Findings (Empirically Computed from Data)
+
+All insights below are dynamically calculated directly from the authentic 891-record dataset:
+
+1. **Gender Disparity**: Females achieved a **74.2%** survival rate compared to only **18.9%** for males, confirming the strict execution of the "women and children first" maritime protocol.
+2. **Socioeconomic Class**: 1st class passengers survived at **63.0%**, 2nd class at **47.3%**, and 3rd class at **24.2%**, directly reflecting cabin deck altitude and lifeboat access priority.
+3. **Family Dynamics**: Small families (2–4 members) had the highest survival rate (**57.9%**), outperforming solo travelers (**30.4%**) and large families of 5+ members (**16.1%**).
+4. **Age Factor**: Children (age ≤ 12) recorded a **58.0%** survival rate, compared to **38.8%** for passengers older than 12.
+5. **Embarkation Port**: Cherbourg (C) passengers survived at **55.4%** versus Southampton (S) at **33.7%**, driven by the significantly higher proportion of 1st-class ticket holders boarding in Cherbourg.
+6. **Model Benchmark**: The tuned SVC pipeline with RBF kernel (`C=50, gamma=0.01`) achieved a **0.8301 CV accuracy (± 3.05%)** and **0.8523 ROC-AUC**, establishing a robust, leakage-free benchmark.
 
 ---
 
